@@ -13,12 +13,25 @@ const App = () => {
   const [messageValue, setMessageValue] = useState("");
   /* すべてのwavesを保存する状態変数を定義 */
   const [allWaves, setAllWaves] = useState([]);
+  const [editMessage, setEditMessage] = useState("");
+  const [message, setMessage] = useState("");
+  const [waveNum, setWaveNum] = useState(0);
+  const [index, setIndex] = useState("");
+  const [show, setShow] = useState(false)
+
   console.log("currentAccount: ", currentAccount);
   /* デプロイされたコントラクトのアドレスを保持する変数を作成 */
-  const contractAddress = "0xE94167c499D93EEab3E6C4CF1992c1F91Ed60ae3";
+  const contractAddress = "0xc4722cb7A2e7c4eb9C091f9134556a2fD83Df2dd";
   /* コントラクトからすべてのwavesを取得するメソッドを作成 */
   /* ABIの内容を参照する変数を作成 */
   const contractABI = abi.abi;
+
+  const openModal = (index,message,num) => {
+    setIndex(index)
+    setMessage(message)
+    setWaveNum(num)
+    setShow(true)
+  }
 
   const getAllWaves = async () => {
     const { ethereum } = window;
@@ -40,6 +53,8 @@ const App = () => {
             address: wave.waver,
             timestamp: new Date(wave.timestamp * 1000),
             message: wave.message,
+            num: wave.num,
+            edited: wave.edited,
           };
         });
         /* React Stateにデータを格納する */
@@ -58,19 +73,21 @@ const App = () => {
   useEffect(() => {
     let wavePortalContract;
 
-    const onNewWave = (from, timestamp, message) => {
-      console.log("NewWave", from, timestamp, message);
+    const onNewWave = (from, timestamp, message, num, edited) => {
+      console.log("NewWave", from, timestamp, message, num, edited);
       setAllWaves((prevState) => [
         ...prevState,
         {
           address: from,
           timestamp: new Date(timestamp * 1000),
           message: message,
+          num: num,
+          edited: edited
         },
       ]);
     };
     
-    /* NewWaveイベントがコントラクトから発信されたときに、情報をを受け取ります */
+    /* NewWaveイベントがコントラクトから発信されたときに、情報を受け取ります */
     if (window.ethereum) {
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
@@ -88,7 +105,6 @@ const App = () => {
       if (wavePortalContract) {
         wavePortalContract.off("NewWave", onNewWave);
         console.log("of!");
-
       }
     };
   }, []);
@@ -183,6 +199,30 @@ const App = () => {
     }
   };
 
+  const editWave = async () => {
+    try {
+      const { ethereum } = window;
+      if (ethereum) {
+        const provider = new ethers.providers.Web3Provider(ethereum);
+        const signer = provider.getSigner();
+        /* ABIを参照 */
+        const wavePortalContract = new ethers.Contract(
+          contractAddress,
+          contractABI,
+          signer
+        );
+        const waveTxn = await wavePortalContract.editWave(editMessage,waveNum);
+        console.log("Mining...", waveTxn.hash);
+        await waveTxn.wait();
+        console.log("Mined -- ", waveTxn.hash);
+      } else {
+        console.log("Ethereum object doesn't exist!");
+      }
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
   /* WEBページがロードされたときにcheckIfWalletIsConnected()を実行 */
   useEffect(() => {
     checkIfWalletIsConnected();
@@ -195,7 +235,7 @@ const App = () => {
           <span role="img" aria-label="hand-wave">
             👋
           </span>{" "}
-          WELCOME!
+          Chain Message
         </div>
         <div className="bio">
           イーサリアムウォレットを接続して、メッセージを作成したら、
@@ -247,16 +287,65 @@ const App = () => {
                     backgroundColor: "#F8F8FF",
                     marginTop: "16px",
                     padding: "8px",
-                  }}
-                >
+                  }}>
+                  <p># {index}</p> {wave.edited && (<span> **編集済**</span>)}
                   <div>Address: {wave.address}</div>
-                  <div>Time: {wave.timestamp.toString()}</div>
+                  <div>Time: {wave.timestamp.toString()},{wave.num.toString()}</div>
                   <div>Message: {wave.message}</div>
+                  <div>{(() => {
+                    const ca = JSON.stringify({currentAccount});
+                    const wa = '{"currentAccount":"' + wave.address.toLowerCase() + '"}';
+                    if (ca === wa) {
+                      return <button className="editButton" onClick={() => openModal(index, wave.message, wave.num.toNumber())}>edit</button>
+                    } else {
+                      return null
+                    }
+                  })()}</div>
+                  {/*<button className="editButton" onClick={() => openModal(index, wave.message)}>edit</button>*/}
                 </div>
               );
-            })}
+        })}
+        <Modal editMessage={editMessage} setEditMessage={setEditMessage}
+         show={show} setShow={setShow} index={index} message={message} 
+         waveNum={waveNum} editWave={editWave}/>
       </div>
     </div>
   );
 };
+
+function Modal({editMessage, setEditMessage, show, setShow, index, message, waveNum, editWave}) {
+  const closeModal = () => {
+    setShow(false)
+    setEditMessage("")
+  }
+  const editWaveConfirm = () =>{
+    editWave()
+    closeModal()
+  }
+  if (show) {
+    return (
+      <div id="overlay" onClick={closeModal}>
+        <div id="content" onClick={(e) => e.stopPropagation()}>
+          <p># {index}</p>
+          <p>{'('}{waveNum}{')'}</p>
+          <div>Message: {message}</div>
+          <textarea
+            className="editMessageArea"
+            name="messageArea"
+            placeholder="メッセージはこちら"
+            type="text"
+            id="message"
+            value={editMessage}
+            onChange={(e) => setEditMessage(e.target.value)}
+          />
+          <button className="confirmBtn" onClick={editWaveConfirm} >confirm</button>
+          <button className="closeBtn" onClick={closeModal}>×</button>
+        </div>
+      </div >
+    )
+  } else {
+    return null;
+  }
+};
+
 export default App;
